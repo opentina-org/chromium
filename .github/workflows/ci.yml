@@ -1,0 +1,33 @@
+name: Validate Packaging & Patch Metadata
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check shell scripts syntax
+        run: |
+          bash -n scripts/fetch-source.sh
+          bash -n scripts/apply-patches.sh
+          bash -n scripts/build-arm64.sh
+          bash -n scripts/package-deb.sh
+          sh -n packaging/chromium-launcher.sh
+          sh -n packaging/etc-chromium.d/10-opentina-gpu
+
+      - name: Verify patch series integrity
+        run: |
+          test -s VERSION
+          test -s config/args.arm64.gn
+          while IFS= read -r p || [ -n "$p" ]; do
+            [ -z "$p" ] && continue
+            case "$p" in \#*) continue ;; esac
+            test -s "patches/$p"
+            grep -q "^--- a/" "patches/$p"
+            grep -q "^+++ b/" "patches/$p"
+          done < patches/series

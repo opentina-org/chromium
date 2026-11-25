@@ -1,0 +1,8 @@
+# Build caches and artifacts (kept outside git)
+build/
+out/
+dist/
+*.deb
+*.tar.xz
+*.tar.gz
+*.log

@@ -1,0 +1,12 @@
+# OpenTina GPU defaults for ARM64 Mesa/Zink + Wayland/X11 sessions.
+# Only sets defaults when the user/service has not explicitly passed overrides.
+
+case " $* $CHROMIUM_FLAGS " in
+  *" --ozone-platform="*|*" --ozone-platform-hint="*) ;;
+  *) CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform-hint=auto" ;;
+esac
+
+case " $* $CHROMIUM_FLAGS " in
+  *" --use-angle="*|*" --use-gl="*) ;;
+  *) CHROMIUM_FLAGS="$CHROMIUM_FLAGS --use-angle=gles-egl" ;;
+esac

@@ -1,0 +1,49 @@
+# OpenTina universal ARM64 Linux Chromium build configuration
+# Produces a self-contained build linked against Debian Bullseye sysroot
+# (glibc >= 2.31) + bundled third_party libraries so a single arm64.deb runs
+# cleanly on both Debian 12/13 and Ubuntu 22.04/24.04.
+
+target_os = "linux"
+target_cpu = "arm64"
+
+# Release optimization tuned for bounded-memory builds (<20 GiB RSS, no swap)
+is_debug = false
+is_official_build = false
+dcheck_always_on = false
+symbol_level = 0
+blink_symbol_level = 0
+v8_symbol_level = 0
+use_thin_lto = false
+is_cfi = false
+chrome_pgo_phase = 0
+concurrent_links = 1
+treat_warnings_as_errors = false
+
+# Bundled C++ runtime + sysroot for cross-distro ABI stability
+use_sysroot = true
+use_custom_libcxx = true
+use_qt5 = false
+use_qt6 = false
+
+# Display / GPU / Wayland + X11 support
+ozone_platform_wayland = true
+ozone_platform_x11 = true
+ozone_platform_headless = true
+use_vaapi = false
+use_v4l2_codec = false
+
+# Codecs & Audio
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+use_pulseaudio = true
+link_pulseaudio = false
+rtc_use_pipewire = true
+
+# Disable unneeded features and test targets
+enable_vr = false
+enable_remoting = false
+build_dawn_tests = false
+angle_build_tests = false
+tint_build_unittests = false
+enable_perfetto_unittests = false
+disable_fieldtrial_testing_config = true
