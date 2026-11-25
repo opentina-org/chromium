@@ -37,7 +37,7 @@ cd "${SRC_DIR}"
 python3 build/linux/sysroot_scripts/install-sysroot.py --arch=amd64
 python3 build/linux/sysroot_scripts/install-sysroot.py --arch=arm64
 
-echo "[4/4] Installing matched Clang, Rust, and Node (${NODE_VERSION}) toolchains..."
+echo "[4/4] Installing matched Clang, Rust, Node (${NODE_VERSION}), and Go (${GO_VERSION}) toolchains..."
 python3 tools/clang/scripts/update.py
 python3 tools/rust/update_rust.py
 
@@ -47,6 +47,14 @@ if [[ ! -x "third_party/node/linux/node-linux-x64/bin/node" ]]; then
     | tar -xJf - -C third_party/node/linux
   rm -rf third_party/node/linux/node-linux-x64
   mv "third_party/node/linux/node-${NODE_VERSION}-linux-x64" third_party/node/linux/node-linux-x64
+fi
+
+if [[ ! -x "third_party/dawn/tools/golang/linux-amd64/bin/go" ]]; then
+  mkdir -p third_party/dawn/tools/golang
+  rm -rf third_party/dawn/tools/golang/go third_party/dawn/tools/golang/linux-amd64
+  curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+    | tar -xzf - -C third_party/dawn/tools/golang
+  mv third_party/dawn/tools/golang/go third_party/dawn/tools/golang/linux-amd64
 fi
 
 echo "Source and toolchains ready at: ${SRC_DIR}"
