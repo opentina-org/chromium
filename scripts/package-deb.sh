@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 022
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../VERSION
 source "${REPO_ROOT}/VERSION"
 
 CACHE_DIR="${CHROMIUM_CACHE_DIR:-${REPO_ROOT}/build/cache}"
-SRC_DIR="${CHROMIUM_SRC_DIR:-${CACHE_DIR}/chromium-${CHROMIUM_VERSION}}"
+SRC_PARENT="${CHROMIUM_SRC_PARENT:-${CACHE_DIR}}"
+SRC_DIR="${CHROMIUM_SRC_DIR:-${SRC_PARENT}/chromium-${CHROMIUM_VERSION}}"
 OUT_DIR="${CHROMIUM_OUT_DIR:-${SRC_DIR}/out/Release-arm64}"
 DIST_DIR="${CHROMIUM_DIST_DIR:-${REPO_ROOT}/dist}"
 PKG_VER="${CHROMIUM_VERSION}-${DEB_REVISION}"
@@ -44,7 +46,18 @@ for shlib in libEGL.so libGLESv2.so libvk_swiftshader.so libvulkan.so.1; do
 done
 [[ -f "${OUT_DIR}/vk_swiftshader_icd.json" ]] && cp -a "${OUT_DIR}/vk_swiftshader_icd.json" "${STAGE_DIR}/usr/lib/chromium/"
 
-cp -a "${OUT_DIR}"/*.bin "${STAGE_DIR}/usr/lib/chromium/" 2>/dev/null || true
+found_v8_snapshot=0
+for snap in v8_context_snapshot.bin snapshot_blob.bin; do
+  if [[ -f "${OUT_DIR}/${snap}" ]]; then
+    cp -a "${OUT_DIR}/${snap}" "${STAGE_DIR}/usr/lib/chromium/"
+    found_v8_snapshot=1
+  fi
+done
+if [[ "${found_v8_snapshot}" -eq 0 ]]; then
+  echo "Error: Missing V8 snapshot binary (v8_context_snapshot.bin / snapshot_blob.bin) in ${OUT_DIR}" >&2
+  exit 1
+fi
+
 cp -a "${OUT_DIR}/icudtl.dat" "${STAGE_DIR}/usr/lib/chromium/"
 cp -a "${OUT_DIR}"/chrome_*.pak "${STAGE_DIR}/usr/lib/chromium/"
 cp -a "${OUT_DIR}/resources.pak" "${STAGE_DIR}/usr/lib/chromium/"
@@ -54,14 +67,19 @@ if [[ -d "${OUT_DIR}/MEIPreload" ]]; then
   cp -a "${OUT_DIR}/MEIPreload" "${STAGE_DIR}/usr/lib/chromium/"
 fi
 
-echo "[2/4] Stripping ELF binaries..."
+echo "[2/4] Stripping ELF binaries and setting default sandbox permissions..."
 "${STRIP_BIN}" --strip-unneeded \
   "${STAGE_DIR}/usr/lib/chromium/chromium" \
   "${STAGE_DIR}/usr/lib/chromium/chrome-sandbox" \
   "${STAGE_DIR}/usr/lib/chromium/chrome_crashpad_handler"
 for sofile in "${STAGE_DIR}/usr/lib/chromium"/*.so*; do
-  [[ -f "${sofile}" && ! -L "${sofile}" ]] && "${STRIP_BIN}" --strip-unneeded "${sofile}" || true
+  if [[ -f "${sofile}" && ! -L "${sofile}" ]]; then
+    "${STRIP_BIN}" --strip-unneeded "${sofile}"
+  fi
 done
+# Set 4755 in package payload (owned by root:root via dpkg-deb --root-owner-group)
+# so dpkg preserves local dpkg-statoverride settings across upgrades.
+chmod 4755 "${STAGE_DIR}/usr/lib/chromium/chrome-sandbox"
 
 install -m 0755 "${REPO_ROOT}/packaging/chromium-launcher.sh" "${STAGE_DIR}/usr/bin/chromium"
 ln -sf chromium "${STAGE_DIR}/usr/bin/chromium-browser"
@@ -100,17 +118,6 @@ EOF
 cat > "${STAGE_DIR}/DEBIAN/conffiles" <<EOF
 /etc/chromium.d/10-opentina-gpu
 EOF
-
-cat > "${STAGE_DIR}/DEBIAN/postinst" <<'EOF'
-#!/bin/sh
-set -e
-if [ "$1" = "configure" ] && [ -f /usr/lib/chromium/chrome-sandbox ]; then
-  chown root:root /usr/lib/chromium/chrome-sandbox || true
-  chmod 4755 /usr/lib/chromium/chrome-sandbox || true
-fi
-exit 0
-EOF
-chmod 0755 "${STAGE_DIR}/DEBIAN/postinst"
 
 echo "[4/4] Building ${DIST_DIR}/${PKG_NAME}.deb..."
 mkdir -p "${DIST_DIR}"
