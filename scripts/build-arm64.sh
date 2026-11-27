@@ -8,20 +8,24 @@ source "${REPO_ROOT}/VERSION"
 CACHE_DIR="$(realpath -m "${CHROMIUM_CACHE_DIR:-${REPO_ROOT}/build/cache}")"
 SRC_PARENT="$(realpath -m "${CHROMIUM_SRC_PARENT:-${CACHE_DIR}}")"
 SRC_DIR="$(realpath -m "${CHROMIUM_SRC_DIR:-${SRC_PARENT}/chromium-${CHROMIUM_VERSION}}")"
+EXTRACT_PARENT="$(dirname "${SRC_DIR}")"
 OUT_DIR="$(realpath -m "${CHROMIUM_OUT_DIR:-${SRC_DIR}/out/Release-arm64}")"
 JOBS="${NINJA_JOBS:-8}"
+
+# Acquire the shared source-tree lock used by fetch-source.sh and apply-patches.sh
+# before checking SRC_DIR so concurrent fetches finish toolchain installation first
+# and concurrent builds cannot rewrite source patches during compilation.
+mkdir -p "${EXTRACT_PARENT}"
+SRC_LOCK_FILE="${EXTRACT_PARENT}/.$(basename "${SRC_DIR}").opentina-src.lock"
+exec 8>"${SRC_LOCK_FILE}"
+flock 8
 
 if [[ ! -d "${SRC_DIR}" ]]; then
   echo "Error: Source directory not found at ${SRC_DIR}. Run scripts/fetch-source.sh first." >&2
   exit 1
 fi
 
-# Hold SRC_DIR patch lock across patching, gn gen, and ninja so concurrent builds
-# cannot alter source patches while compilation is in progress.
-SRC_PATCH_LOCK="${SRC_DIR}/.opentina-patch.lock"
-exec 8>"${SRC_PATCH_LOCK}"
-flock 8
-OPENTINA_PATCH_LOCK_HELD=1 "${REPO_ROOT}/scripts/apply-patches.sh"
+OPENTINA_SRC_LOCK_HELD=1 "${REPO_ROOT}/scripts/apply-patches.sh"
 
 mkdir -p "${OUT_DIR}"
 OUT_LOCK_FILE="${OUT_DIR}/.opentina-build.lock"

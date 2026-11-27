@@ -8,18 +8,20 @@ source "${REPO_ROOT}/VERSION"
 CACHE_DIR="$(realpath -m "${CHROMIUM_CACHE_DIR:-${REPO_ROOT}/build/cache}")"
 SRC_PARENT="$(realpath -m "${CHROMIUM_SRC_PARENT:-${CACHE_DIR}}")"
 SRC_DIR="$(realpath -m "${CHROMIUM_SRC_DIR:-${SRC_PARENT}/chromium-${CHROMIUM_VERSION}}")"
+EXTRACT_PARENT="$(dirname "${SRC_DIR}")"
 STAMP_FILE="${SRC_DIR}/.opentina-patches-applied"
 BACKUP_DIR="${SRC_DIR}/.opentina-patch-backup"
-LOCK_FILE="${SRC_DIR}/.opentina-patch.lock"
+SRC_LOCK_FILE="${EXTRACT_PARENT}/.$(basename "${SRC_DIR}").opentina-src.lock"
+
+mkdir -p "${EXTRACT_PARENT}"
+if [[ "${OPENTINA_SRC_LOCK_HELD:-0}" != "1" ]]; then
+  exec 9>"${SRC_LOCK_FILE}"
+  flock 9
+fi
 
 if [[ ! -d "${SRC_DIR}" ]]; then
   echo "Error: Chromium source tree not found at ${SRC_DIR}" >&2
   exit 1
-fi
-
-if [[ "${OPENTINA_PATCH_LOCK_HELD:-0}" != "1" ]]; then
-  exec 9>"${LOCK_FILE}"
-  flock 9
 fi
 
 restore_from_backup() {
@@ -93,7 +95,7 @@ if [[ "${#PATCH_FILES[@]}" -gt 0 ]]; then
     TOUCHED_PATHS+=("${rel_path}")
   done < <(
     for patch_file in "${PATCH_FILES[@]}"; do
-      sed -n 's|^--- a/||p; s|^+++ b/||p' "${patch_file}"
+      sed -n $'s|^--- a/\\([^\t]*\\).*|\\1|p; s|^+++ b/\\([^\t]*\\).*|\\1|p; s|^--- \\(/dev/null\\).*|\\1|p; s|^+++ \\(/dev/null\\).*|\\1|p' "${patch_file}"
     done | grep -v '^/dev/null$' | sort -u
   )
 

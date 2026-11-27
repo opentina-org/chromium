@@ -13,7 +13,7 @@ OpenTina wrapper options:
   -h, --help         Show this help message and exit
   --temp-profile     Start with a fresh temporary profile directory removed on exit
 
-All other flags are passed directly to $LIBDIR/chromium.
+All other flags are passed directly to $LIBDIR/chrome.
 Drop-in flag files are sourced from /etc/chromium.d/*.
 EOF
 }
@@ -114,36 +114,104 @@ fi
 if [ "$want_temp_profile" -eq 1 ]; then
   TEMP_PROFILE="$(mktemp -d)"
   child_pid=""
+  wait_helper_pid=""
+
+  find_profile_pids() {
+    set +f
+    TARGET_UD="--user-data-dir=$TEMP_PROFILE" SELF_PID="$$" awk '
+      BEGIN {
+        RS = "\0"
+        target = ENVIRON["TARGET_UD"]
+        self_pid = ENVIRON["SELF_PID"]
+        for (i = 1; i < ARGC; i++) {
+          f = ARGV[i]
+          ARGV[i] = ""
+          while ((getline tok < f) > 0) {
+            if (tok == target) {
+              split(f, a, "/")
+              if (a[3] != self_pid) print a[3]
+              break
+            }
+          }
+          close(f)
+        }
+        exit 0
+      }
+    ' /proc/[0-9]*/cmdline 2>/dev/null || true
+    set -f
+  }
+
+  is_live_process() {
+    [ -r "/proc/$1/stat" ] || return 1
+    case "$(cat "/proc/$1/stat" 2>/dev/null)" in
+      ""|*") Z "*|*") X "*|*") x "*) return 1 ;;
+    esac
+    kill -0 "$1" 2>/dev/null
+  }
+
+  wait_nonchild_pid() {
+    target_p="$1"
+    while is_live_process "$target_p"; do
+      sleep 0.2 &
+      wait_helper_pid=$!
+      wait "$wait_helper_pid" 2>/dev/null || true
+      wait_helper_pid=""
+    done
+  }
+
   cleanup_temp_profile() {
     rm -rf "$TEMP_PROFILE"
   }
+
   forward_signal() {
     sig="$1"
     trap - EXIT INT TERM HUP
+    [ -n "$wait_helper_pid" ] && kill "$wait_helper_pid" 2>/dev/null || true
     if [ -n "$child_pid" ]; then
       kill "-$sig" "$child_pid" 2>/dev/null || true
-      wait "$child_pid" 2>/dev/null || true
     fi
+    for p in $(find_profile_pids); do
+      kill "-$sig" "$p" 2>/dev/null || true
+    done
+    [ -n "$child_pid" ] && wait "$child_pid" 2>/dev/null || true
+    for p in $(find_profile_pids); do
+      wait_nonchild_pid "$p"
+    done
     cleanup_temp_profile
     exit 143
   }
+
   trap 'cleanup_temp_profile' EXIT
   trap 'forward_signal INT' INT
   trap 'forward_signal TERM' TERM
   trap 'forward_signal HUP' HUP
+
   # Place --user-data-dir before $CHROMIUM_FLAGS so any '--' in $CHROMIUM_FLAGS
   # never turns --user-data-dir into a positional URL argument.
   # shellcheck disable=SC2086
-  "$LIBDIR/chromium" "--user-data-dir=$TEMP_PROFILE" $CHROMIUM_FLAGS "$@" &
+  "$LIBDIR/chrome" "--user-data-dir=$TEMP_PROFILE" $CHROMIUM_FLAGS "$@" &
   child_pid=$!
   set +e
   wait "$child_pid"
   rc=$?
+  child_pid=""
+
+  # Wait for any in-browser relaunched instance (e.g. chrome://restart) that
+  # inherited --user-data-dir=$TEMP_PROFILE before removing the directory.
+  while :; do
+    remaining_pids="$(find_profile_pids)"
+    [ -n "$remaining_pids" ] || break
+    rc=0
+    for p in $remaining_pids; do
+      wait_nonchild_pid "$p"
+    done
+  done
+
   set -e
   trap - EXIT INT TERM HUP
   cleanup_temp_profile
   exit "$rc"
 else
   # shellcheck disable=SC2086
-  exec "$LIBDIR/chromium" $CHROMIUM_FLAGS "$@"
+  exec "$LIBDIR/chrome" $CHROMIUM_FLAGS "$@"
 fi

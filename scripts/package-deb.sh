@@ -51,7 +51,11 @@ mkdir -p \
   "${STAGE_DIR}/usr/share/icons/hicolor/256x256/apps"
 
 echo "[1/4] Staging binaries and resources..."
-install -m 0755 "${OUT_DIR}/chrome" "${STAGE_DIR}/usr/lib/chromium/chromium"
+# Keep executable named 'chrome' so ProcessSingleton::IsChromeProcess() matches
+# chrome::kBrowserProcessExecutableName ("chrome") via /proc/<pid>/exe, and
+# provide a 'chromium' compatibility symlink alongside it.
+install -m 0755 "${OUT_DIR}/chrome" "${STAGE_DIR}/usr/lib/chromium/chrome"
+ln -sf chrome "${STAGE_DIR}/usr/lib/chromium/chromium"
 install -m 0755 "${OUT_DIR}/chrome_sandbox" "${STAGE_DIR}/usr/lib/chromium/chrome-sandbox"
 install -m 0755 "${OUT_DIR}/chrome_crashpad_handler" "${STAGE_DIR}/usr/lib/chromium/chrome_crashpad_handler"
 
@@ -111,7 +115,7 @@ exec 8>&-
 
 echo "[2/4] Stripping ELF binaries and normalizing payload permissions..."
 "${STRIP_BIN}" --strip-unneeded \
-  "${STAGE_DIR}/usr/lib/chromium/chromium" \
+  "${STAGE_DIR}/usr/lib/chromium/chrome" \
   "${STAGE_DIR}/usr/lib/chromium/chrome-sandbox" \
   "${STAGE_DIR}/usr/lib/chromium/chrome_crashpad_handler"
 for sofile in "${STAGE_DIR}/usr/lib/chromium"/*.so*; do
@@ -136,7 +140,7 @@ find "${STAGE_DIR}" -type d -exec chmod 0755 {} +
 find "${STAGE_DIR}/usr/lib/chromium" -type f -exec chmod 0644 {} +
 chmod 0755 \
   "${STAGE_DIR}/usr/bin/chromium" \
-  "${STAGE_DIR}/usr/lib/chromium/chromium" \
+  "${STAGE_DIR}/usr/lib/chromium/chrome" \
   "${STAGE_DIR}/usr/lib/chromium/chrome_crashpad_handler"
 for sofile in "${STAGE_DIR}/usr/lib/chromium"/*.so*; do
   if [[ -f "${sofile}" && ! -L "${sofile}" ]]; then
@@ -184,11 +188,14 @@ trap 'rm -f "${TMP_DEB}" "${TMP_SHA}"' EXIT
 DPKG_DEB_THREADS_MAX="${DPKG_DEB_THREADS_MAX:-8}" dpkg-deb --root-owner-group -Zxz -z6 --build "${STAGE_DIR}" "${TMP_DEB}"
 DEB_SHA256="$(sha256sum "${TMP_DEB}" | awk '{print $1}')"
 printf '%s  %s.deb\n' "${DEB_SHA256}" "${PKG_NAME}" > "${TMP_SHA}"
+# Remove any previous checksum file before swapping in the new .deb so a crash
+# between renames never leaves a new .deb paired with a stale checksum.
+rm -f "${DIST_DIR}/${PKG_NAME}.deb.sha256"
 mv -f "${TMP_DEB}" "${DIST_DIR}/${PKG_NAME}.deb"
 mv -f "${TMP_SHA}" "${DIST_DIR}/${PKG_NAME}.deb.sha256"
 trap - EXIT
 
-echo "Verify DT_NEEDED of /usr/lib/chromium/chromium:"
-aarch64-linux-gnu-readelf -d "${STAGE_DIR}/usr/lib/chromium/chromium" | grep NEEDED || true
+echo "Verify DT_NEEDED of /usr/lib/chromium/chrome:"
+aarch64-linux-gnu-readelf -d "${STAGE_DIR}/usr/lib/chromium/chrome" | grep NEEDED || true
 ls -lh "${DIST_DIR}/${PKG_NAME}.deb"
 cat "${DIST_DIR}/${PKG_NAME}.deb.sha256"
