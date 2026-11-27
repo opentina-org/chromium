@@ -41,12 +41,32 @@ want_temp_profile=0
 has_user_data_dir=0
 seen_ddash=0
 
+# Strip --temp-profile from CHROMIUM_FLAGS before '--' while checking --user-data-dir.
+filtered_flags=""
+flags_seen_ddash=0
 for flag_tok in $CHROMIUM_FLAGS; do
+  if [ "$flags_seen_ddash" -eq 1 ]; then
+    filtered_flags="${filtered_flags:+$filtered_flags }$flag_tok"
+    continue
+  fi
   case "$flag_tok" in
-    --user-data-dir|--user-data-dir=*) has_user_data_dir=1 ;;
-    --temp-profile) want_temp_profile=1 ;;
+    --)
+      flags_seen_ddash=1
+      filtered_flags="${filtered_flags:+$filtered_flags }--"
+      ;;
+    --temp-profile)
+      want_temp_profile=1
+      ;;
+    --user-data-dir|--user-data-dir=*)
+      has_user_data_dir=1
+      filtered_flags="${filtered_flags:+$filtered_flags }$flag_tok"
+      ;;
+    *)
+      filtered_flags="${filtered_flags:+$filtered_flags }$flag_tok"
+      ;;
   esac
 done
+CHROMIUM_FLAGS="$filtered_flags"
 
 argc=$#
 i=0
@@ -105,8 +125,10 @@ if [ "$want_temp_profile" -eq 1 ]; then
   trap 'forward_signal INT' INT
   trap 'forward_signal TERM' TERM
   trap 'forward_signal HUP' HUP
+  # Place --user-data-dir before $CHROMIUM_FLAGS so any '--' in $CHROMIUM_FLAGS
+  # never turns --user-data-dir into a positional URL argument.
   # shellcheck disable=SC2086
-  "$LIBDIR/chromium" $CHROMIUM_FLAGS "--user-data-dir=$TEMP_PROFILE" "$@" &
+  "$LIBDIR/chromium" "--user-data-dir=$TEMP_PROFILE" $CHROMIUM_FLAGS "$@" &
   child_pid=$!
   set +e
   wait "$child_pid"

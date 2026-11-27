@@ -9,6 +9,7 @@ CACHE_DIR="$(realpath -m "${CHROMIUM_CACHE_DIR:-${REPO_ROOT}/build/cache}")"
 SRC_PARENT="$(realpath -m "${CHROMIUM_SRC_PARENT:-${CACHE_DIR}}")"
 SRC_DIR="$(realpath -m "${CHROMIUM_SRC_DIR:-${SRC_PARENT}/chromium-${CHROMIUM_VERSION}}")"
 STAMP_FILE="${SRC_DIR}/.opentina-patches-applied"
+BACKUP_DIR="${SRC_DIR}/.opentina-patch-backup"
 LOCK_FILE="${SRC_DIR}/.opentina-patch.lock"
 
 if [[ ! -d "${SRC_DIR}" ]]; then
@@ -18,6 +19,28 @@ fi
 
 exec 9>"${LOCK_FILE}"
 flock 9
+
+restore_from_backup() {
+  echo "Restoring pristine source files from ${BACKUP_DIR}..."
+  if [[ -d "${BACKUP_DIR}/orig" ]]; then
+    (
+      cd "${BACKUP_DIR}/orig"
+      find . -type f -print0 | while IFS= read -r -d '' rel; do
+        rel="${rel#./}"
+        mkdir -p "${SRC_DIR}/$(dirname "${rel}")"
+        cp -a "${BACKUP_DIR}/orig/${rel}" "${SRC_DIR}/${rel}"
+      done
+    )
+  fi
+  if [[ -f "${BACKUP_DIR}/created" ]]; then
+    while IFS= read -r rel || [[ -n "${rel}" ]]; do
+      [[ -z "${rel}" ]] && continue
+      rm -f "${SRC_DIR}/${rel}"
+    done < "${BACKUP_DIR}/created"
+  fi
+  rm -f "${STAMP_FILE}"
+  rm -rf "${BACKUP_DIR}"
+}
 
 PATCH_FILES=()
 while IFS= read -r patch_name || [[ -n "${patch_name}" ]]; do
@@ -42,9 +65,21 @@ if [[ -f "${STAMP_FILE}" ]]; then
     echo "Patches already applied (digest ${EXPECTED_DIGEST})."
     exit 0
   fi
-  echo "Error: Patch series digest changed (applied=${APPLIED_DIGEST}, current=${EXPECTED_DIGEST})." >&2
-  echo "Remove ${SRC_DIR} and re-run scripts/fetch-source.sh to apply updated patches cleanly." >&2
-  exit 1
+  if [[ -f "${BACKUP_DIR}/ready" ]]; then
+    echo "Patch series digest changed (${APPLIED_DIGEST} -> ${EXPECTED_DIGEST}); rolling back before re-applying."
+    restore_from_backup
+  else
+    echo "Error: Patch series digest changed (applied=${APPLIED_DIGEST}, current=${EXPECTED_DIGEST})." >&2
+    echo "Remove ${SRC_DIR} and re-run scripts/fetch-source.sh to apply updated patches cleanly." >&2
+    exit 1
+  fi
+elif [[ -d "${BACKUP_DIR}" ]]; then
+  if [[ -f "${BACKUP_DIR}/ready" ]]; then
+    echo "Detected interrupted patch application; restoring backup before retrying."
+    restore_from_backup
+  else
+    rm -rf "${BACKUP_DIR}"
+  fi
 fi
 
 if [[ "${#PATCH_FILES[@]}" -gt 0 ]]; then
@@ -53,9 +88,11 @@ if [[ "${#PATCH_FILES[@]}" -gt 0 ]]; then
   TMP_CHECK="$(mktemp -d)"
   trap 'rm -rf "${TMP_CHECK}"' EXIT
   echo "Validating OpenTina patch series atomically..."
+  TOUCHED_PATHS=()
   for patch_file in "${PATCH_FILES[@]}"; do
     while IFS= read -r rel_path; do
       [[ -z "${rel_path}" ]] && continue
+      TOUCHED_PATHS+=("${rel_path}")
       if [[ -f "${SRC_DIR}/${rel_path}" && ! -f "${TMP_CHECK}/${rel_path}" ]]; then
         mkdir -p "${TMP_CHECK}/$(dirname "${rel_path}")"
         cp -a "${SRC_DIR}/${rel_path}" "${TMP_CHECK}/${rel_path}"
@@ -66,6 +103,22 @@ if [[ "${#PATCH_FILES[@]}" -gt 0 ]]; then
   rm -rf "${TMP_CHECK}"
   trap - EXIT
 
+  # Save pristine copies + in-progress marker before modifying SRC_DIR so an
+  # interrupted run can roll back cleanly on retry.
+  rm -rf "${BACKUP_DIR}"
+  mkdir -p "${BACKUP_DIR}/orig"
+  : > "${BACKUP_DIR}/created"
+  while IFS= read -r rel_path; do
+    [[ -z "${rel_path}" ]] && continue
+    if [[ -f "${SRC_DIR}/${rel_path}" ]]; then
+      mkdir -p "${BACKUP_DIR}/orig/$(dirname "${rel_path}")"
+      cp -a "${SRC_DIR}/${rel_path}" "${BACKUP_DIR}/orig/${rel_path}"
+    else
+      echo "${rel_path}" >> "${BACKUP_DIR}/created"
+    fi
+  done < <(printf '%s\n' "${TOUCHED_PATHS[@]}" | sort -u)
+  touch "${BACKUP_DIR}/ready"
+
   echo "Applying OpenTina patches from ${REPO_ROOT}/patches/series..."
   for patch_file in "${PATCH_FILES[@]}"; do
     echo "  -> $(basename "${patch_file}")"
@@ -73,5 +126,6 @@ if [[ "${#PATCH_FILES[@]}" -gt 0 ]]; then
   done
 fi
 
-echo "${EXPECTED_DIGEST}" > "${STAMP_FILE}"
+echo "${EXPECTED_DIGEST}" > "${STAMP_FILE}.tmp"
+mv -f "${STAMP_FILE}.tmp" "${STAMP_FILE}"
 echo "All patches applied cleanly (digest ${EXPECTED_DIGEST})."

@@ -132,7 +132,7 @@ Priority: optional
 Architecture: arm64
 Installed-Size: ${INSTALLED_KB}
 Maintainer: OpenTina Maintainers <maintainers@opentina.org>
-Depends: libc6 (>= 2.31), libglib2.0-0t64 | libglib2.0-0, libnss3, libnspr4, libdbus-1-3, libatk1.0-0t64 | libatk1.0-0, libatk-bridge2.0-0t64 | libatk-bridge2.0-0, libatspi2.0-0t64 | libatspi2.0-0, libcups2t64 | libcups2, libdrm2, libgbm1, libexpat1, libxcb1, libxkbcommon0, libx11-6, libxcomposite1, libxdamage1, libxext6, libxfixes3, libxrandr2, libpango-1.0-0, libcairo2, libasound2t64 | libasound2, libudev1, xdg-utils (>= 1.0.2), ca-certificates, fonts-liberation | fonts-dejavu-core
+Depends: libc6 (>= 2.31), libglib2.0-0t64 | libglib2.0-0, libgtk-3-0t64 | libgtk-3-0 | libgtk-4-1, libnss3, libnspr4, libdbus-1-3, libatk1.0-0t64 | libatk1.0-0, libatk-bridge2.0-0t64 | libatk-bridge2.0-0, libatspi2.0-0t64 | libatspi2.0-0, libcups2t64 | libcups2, libdrm2, libgbm1, libexpat1, libxcb1, libxkbcommon0, libx11-6, libxcomposite1, libxdamage1, libxext6, libxfixes3, libxrandr2, libpango-1.0-0, libcairo2, libasound2t64 | libasound2, libudev1, xdg-utils (>= 1.0.2), ca-certificates, fonts-liberation | fonts-dejavu-core
 Recommends: libegl1, libgles2, mesa-vulkan-drivers
 Provides: chromium-browser, chromium-common, chromium-sandbox, www-browser
 Conflicts: chromium-common, chromium-sandbox, chromium-l10n, chromium-browser-sunxi

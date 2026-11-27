@@ -17,8 +17,9 @@ TARBALL_URL="https://commondatastorage.googleapis.com/chromium-browser-official/
 
 mkdir -p "${CACHE_DIR}" "${EXTRACT_PARENT}"
 
-LOCK_FILE="${CACHE_DIR}/.opentina-fetch.lock"
-exec 9>"${LOCK_FILE}"
+CACHE_LOCK_FILE="${CACHE_DIR}/.opentina-fetch.lock"
+SRC_LOCK_FILE="${EXTRACT_PARENT}/.$(basename "${SRC_DIR}").opentina-src.lock"
+exec 9>"${CACHE_LOCK_FILE}"
 flock 9
 
 echo "[1/4] Verifying or downloading ${TARBALL_NAME}..."
@@ -39,6 +40,11 @@ if [[ ! -f "${TARBALL_PATH}" ]] || ! echo "${TARBALL_SHA256}  ${TARBALL_PATH}" |
   fi
   mv -f "${TARBALL_PART}" "${TARBALL_PATH}"
 fi
+
+# Hold a target-specific lock across extraction and toolchain setup so processes
+# with distinct CHROMIUM_CACHE_DIR values cannot race on the same CHROMIUM_SRC_DIR.
+exec 8>"${SRC_LOCK_FILE}"
+flock 8
 
 echo "[2/4] Extracting source tree to ${SRC_DIR}..."
 if [[ -f "${EXTRACT_STAMP}" ]]; then
@@ -66,7 +72,7 @@ else
     exit 1
   fi
   echo "${TARBALL_SHA256}" > "${EXTRACTED_SUBDIR}/.opentina-extracted"
-  mv "${EXTRACTED_SUBDIR}" "${SRC_DIR}"
+  mv -T "${EXTRACTED_SUBDIR}" "${SRC_DIR}"
   rmdir "${TMP_EXTRACT}"
   trap - EXIT
 fi

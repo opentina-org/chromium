@@ -8,9 +8,10 @@ _ot_has_ozone=0
 _ot_hint_platform=""
 _ot_has_gl=0
 
-# Check CHROMIUM_FLAGS first so explicit CLI flags parsed below take precedence.
+# Check CHROMIUM_FLAGS (stopping at '--') first so explicit CLI flags take precedence.
 for _ot_tok in $CHROMIUM_FLAGS; do
   case "$_ot_tok" in
+    --) break ;;
     --ozone-platform=*) _ot_has_ozone=1 ;;
     --ozone-platform-hint=x11) _ot_hint_platform="x11" ;;
     --ozone-platform-hint=wayland) _ot_hint_platform="wayland" ;;
@@ -30,21 +31,28 @@ for _ot_arg in "$@"; do
   esac
 done
 
+_ot_prepend=""
 if [ "$_ot_has_ozone" -eq 0 ]; then
   case "$_ot_hint_platform" in
     x11|wayland)
-      CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform=$_ot_hint_platform"
+      _ot_prepend="$_ot_prepend --ozone-platform=$_ot_hint_platform"
       ;;
     *)
       if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] || { [ -n "${WAYLAND_DISPLAY:-}" ] && [ -z "${DISPLAY:-}" ]; }; then
-        CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform=wayland"
+        _ot_prepend="$_ot_prepend --ozone-platform=wayland"
       fi
       ;;
   esac
 fi
 
 if [ "$_ot_has_gl" -eq 0 ]; then
-  CHROMIUM_FLAGS="$CHROMIUM_FLAGS --use-angle=gles-egl"
+  _ot_prepend="$_ot_prepend --use-angle=gles-egl"
 fi
 
-unset _ot_tok _ot_arg _ot_has_ozone _ot_hint_platform _ot_has_gl
+if [ -n "$_ot_prepend" ]; then
+  # Prepend before CHROMIUM_FLAGS so any '--' inside CHROMIUM_FLAGS never turns
+  # generated switches into positional arguments.
+  CHROMIUM_FLAGS="${_ot_prepend# }${CHROMIUM_FLAGS:+ $CHROMIUM_FLAGS}"
+fi
+
+unset _ot_tok _ot_arg _ot_has_ozone _ot_hint_platform _ot_has_gl _ot_prepend
