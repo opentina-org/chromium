@@ -1,17 +1,15 @@
 # OpenTina GPU defaults for ARM64 Mesa/Zink + Wayland/X11 sessions.
 # Chromium 156 removed --ozone-platform-hint and only parses --ozone-platform.
-# Map explicit --ozone-platform-hint=x11|wayland to --ozone-platform, auto-select
-# wayland for pure Wayland sessions lacking XDG_SESSION_TYPE, and default ANGLE
-# to gles-egl unless overridden before '--' or in CHROMIUM_FLAGS.
+# Scan combined ($CHROMIUM_FLAGS followed by "$@") up to the first '--'.
 
 _ot_has_ozone=0
 _ot_hint_platform=""
 _ot_has_gl=0
+_ot_seen_ddash=0
 
-# Check CHROMIUM_FLAGS (stopping at '--') first so explicit CLI flags take precedence.
 for _ot_tok in $CHROMIUM_FLAGS; do
   case "$_ot_tok" in
-    --) break ;;
+    --) _ot_seen_ddash=1; break ;;
     --ozone-platform=*) _ot_has_ozone=1 ;;
     --ozone-platform-hint=x11) _ot_hint_platform="x11" ;;
     --ozone-platform-hint=wayland) _ot_hint_platform="wayland" ;;
@@ -20,16 +18,18 @@ for _ot_tok in $CHROMIUM_FLAGS; do
   esac
 done
 
-for _ot_arg in "$@"; do
-  case "$_ot_arg" in
-    --) break ;;
-    --ozone-platform=*) _ot_has_ozone=1 ;;
-    --ozone-platform-hint=x11) _ot_hint_platform="x11" ;;
-    --ozone-platform-hint=wayland) _ot_hint_platform="wayland" ;;
-    --ozone-platform-hint=auto) _ot_hint_platform="auto" ;;
-    --use-angle=*|--use-gl=*) _ot_has_gl=1 ;;
-  esac
-done
+if [ "$_ot_seen_ddash" -eq 0 ]; then
+  for _ot_arg in "$@"; do
+    case "$_ot_arg" in
+      --) break ;;
+      --ozone-platform=*) _ot_has_ozone=1 ;;
+      --ozone-platform-hint=x11) _ot_hint_platform="x11" ;;
+      --ozone-platform-hint=wayland) _ot_hint_platform="wayland" ;;
+      --ozone-platform-hint=auto) _ot_hint_platform="auto" ;;
+      --use-angle=*|--use-gl=*) _ot_has_gl=1 ;;
+    esac
+  done
+fi
 
 _ot_prepend=""
 if [ "$_ot_has_ozone" -eq 0 ]; then
@@ -55,4 +55,4 @@ if [ -n "$_ot_prepend" ]; then
   CHROMIUM_FLAGS="${_ot_prepend# }${CHROMIUM_FLAGS:+ $CHROMIUM_FLAGS}"
 fi
 
-unset _ot_tok _ot_arg _ot_has_ozone _ot_hint_platform _ot_has_gl _ot_prepend
+unset _ot_tok _ot_arg _ot_has_ozone _ot_hint_platform _ot_has_gl _ot_seen_ddash _ot_prepend

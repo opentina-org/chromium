@@ -19,6 +19,10 @@ fi
 "${REPO_ROOT}/scripts/apply-patches.sh"
 
 mkdir -p "${OUT_DIR}"
+OUT_LOCK_FILE="${OUT_DIR}/.opentina-build.lock"
+exec 9>"${OUT_LOCK_FILE}"
+flock 9
+
 cp "${REPO_ROOT}/config/args.arm64.gn" "${OUT_DIR}/args.gn"
 
 cd "${SRC_DIR}"

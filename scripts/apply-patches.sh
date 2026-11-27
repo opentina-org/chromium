@@ -28,7 +28,9 @@ restore_from_backup() {
       find . -type f -print0 | while IFS= read -r -d '' rel; do
         rel="${rel#./}"
         mkdir -p "${SRC_DIR}/$(dirname "${rel}")"
-        cp -a "${BACKUP_DIR}/orig/${rel}" "${SRC_DIR}/${rel}"
+        cp -f "${BACKUP_DIR}/orig/${rel}" "${SRC_DIR}/${rel}"
+        # Refresh mtime so Ninja rebuilds objects for files no longer patched.
+        touch "${SRC_DIR}/${rel}"
       done
     )
   fi
@@ -82,13 +84,13 @@ elif [[ -d "${BACKUP_DIR}" ]]; then
   fi
 fi
 
+TOUCHED_PATHS=()
 if [[ "${#PATCH_FILES[@]}" -gt 0 ]]; then
   # Validate all patches in a temporary copy of touched files first so a later
   # hunk failure never leaves earlier files half-patched on disk.
   TMP_CHECK="$(mktemp -d)"
   trap 'rm -rf "${TMP_CHECK}"' EXIT
   echo "Validating OpenTina patch series atomically..."
-  TOUCHED_PATHS=()
   for patch_file in "${PATCH_FILES[@]}"; do
     while IFS= read -r rel_path; do
       [[ -z "${rel_path}" ]] && continue
@@ -102,12 +104,14 @@ if [[ "${#PATCH_FILES[@]}" -gt 0 ]]; then
   done
   rm -rf "${TMP_CHECK}"
   trap - EXIT
+fi
 
-  # Save pristine copies + in-progress marker before modifying SRC_DIR so an
-  # interrupted run can roll back cleanly on retry.
-  rm -rf "${BACKUP_DIR}"
-  mkdir -p "${BACKUP_DIR}/orig"
-  : > "${BACKUP_DIR}/created"
+# Always initialize backup/ready (even for an empty patch series) so subsequent
+# additions or modifications to patches/series can roll back and re-apply cleanly.
+rm -rf "${BACKUP_DIR}"
+mkdir -p "${BACKUP_DIR}/orig"
+: > "${BACKUP_DIR}/created"
+if [[ "${#TOUCHED_PATHS[@]}" -gt 0 ]]; then
   while IFS= read -r rel_path; do
     [[ -z "${rel_path}" ]] && continue
     if [[ -f "${SRC_DIR}/${rel_path}" ]]; then
@@ -117,8 +121,10 @@ if [[ "${#PATCH_FILES[@]}" -gt 0 ]]; then
       echo "${rel_path}" >> "${BACKUP_DIR}/created"
     fi
   done < <(printf '%s\n' "${TOUCHED_PATHS[@]}" | sort -u)
-  touch "${BACKUP_DIR}/ready"
+fi
+touch "${BACKUP_DIR}/ready"
 
+if [[ "${#PATCH_FILES[@]}" -gt 0 ]]; then
   echo "Applying OpenTina patches from ${REPO_ROOT}/patches/series..."
   for patch_file in "${PATCH_FILES[@]}"; do
     echo "  -> $(basename "${patch_file}")"

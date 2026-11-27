@@ -41,17 +41,17 @@ want_temp_profile=0
 has_user_data_dir=0
 seen_ddash=0
 
-# Strip --temp-profile from CHROMIUM_FLAGS before '--' while checking --user-data-dir.
+# Process combined ($CHROMIUM_FLAGS followed by "$@") respecting the first '--'
+# across the full effective argument sequence.
 filtered_flags=""
-flags_seen_ddash=0
 for flag_tok in $CHROMIUM_FLAGS; do
-  if [ "$flags_seen_ddash" -eq 1 ]; then
+  if [ "$seen_ddash" -eq 1 ]; then
     filtered_flags="${filtered_flags:+$filtered_flags }$flag_tok"
     continue
   fi
   case "$flag_tok" in
     --)
-      flags_seen_ddash=1
+      seen_ddash=1
       filtered_flags="${filtered_flags:+$filtered_flags }--"
       ;;
     --temp-profile)
@@ -60,6 +60,10 @@ for flag_tok in $CHROMIUM_FLAGS; do
     --user-data-dir|--user-data-dir=*)
       has_user_data_dir=1
       filtered_flags="${filtered_flags:+$filtered_flags }$flag_tok"
+      ;;
+    -h|--help|-help)
+      usage
+      exit 0
       ;;
     *)
       filtered_flags="${filtered_flags:+$filtered_flags }$flag_tok"

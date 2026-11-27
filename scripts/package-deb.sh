@@ -95,7 +95,7 @@ if [[ -d "${OUT_DIR}/MEIPreload" ]]; then
   cp -a "${OUT_DIR}/MEIPreload" "${STAGE_DIR}/usr/lib/chromium/"
 fi
 
-echo "[2/4] Stripping ELF binaries and setting default sandbox permissions..."
+echo "[2/4] Stripping ELF binaries and normalizing payload permissions..."
 "${STRIP_BIN}" --strip-unneeded \
   "${STAGE_DIR}/usr/lib/chromium/chromium" \
   "${STAGE_DIR}/usr/lib/chromium/chrome-sandbox" \
@@ -105,11 +105,6 @@ for sofile in "${STAGE_DIR}/usr/lib/chromium"/*.so*; do
     "${STRIP_BIN}" --strip-unneeded "${sofile}"
   fi
 done
-# Normalize group/other write bits copied via cp -a from build output, then
-# set 4755 in package payload (owned by root:root via dpkg-deb --root-owner-group)
-# so dpkg preserves local dpkg-statoverride settings across upgrades.
-chmod -R go-w "${STAGE_DIR}"
-chmod 4755 "${STAGE_DIR}/usr/lib/chromium/chrome-sandbox"
 
 install -m 0755 "${REPO_ROOT}/packaging/chromium-launcher.sh" "${STAGE_DIR}/usr/bin/chromium"
 ln -sf chromium "${STAGE_DIR}/usr/bin/chromium-browser"
@@ -120,6 +115,23 @@ if [[ -f "${SRC_DIR}/chrome/app/theme/chromium/product_logo_256.png" ]]; then
   install -m 0644 "${SRC_DIR}/chrome/app/theme/chromium/product_logo_256.png" \
     "${STAGE_DIR}/usr/share/icons/hicolor/256x256/apps/chromium.png"
 fi
+
+# Explicitly normalize all directory/file modes so restrictive build umasks
+# (such as 077) never produce root-only .pak / .bin resources.
+find "${STAGE_DIR}" -type d -exec chmod 0755 {} +
+find "${STAGE_DIR}/usr/lib/chromium" -type f -exec chmod 0644 {} +
+chmod 0755 \
+  "${STAGE_DIR}/usr/bin/chromium" \
+  "${STAGE_DIR}/usr/lib/chromium/chromium" \
+  "${STAGE_DIR}/usr/lib/chromium/chrome_crashpad_handler"
+for sofile in "${STAGE_DIR}/usr/lib/chromium"/*.so*; do
+  if [[ -f "${sofile}" && ! -L "${sofile}" ]]; then
+    chmod 0755 "${sofile}"
+  fi
+done
+# Set 4755 in package payload (owned by root:root via dpkg-deb --root-owner-group)
+# so dpkg preserves local dpkg-statoverride settings across upgrades.
+chmod 4755 "${STAGE_DIR}/usr/lib/chromium/chrome-sandbox"
 
 echo "[3/4] Writing Debian/Ubuntu cross-distro control metadata..."
 INSTALLED_KB="$(du -sk "${STAGE_DIR}/usr" "${STAGE_DIR}/etc" | awk '{sum+=$1} END {print sum}')"
@@ -148,10 +160,19 @@ EOF
 cat > "${STAGE_DIR}/DEBIAN/conffiles" <<EOF
 /etc/chromium.d/10-opentina-gpu
 EOF
+chmod 0644 "${STAGE_DIR}/DEBIAN/control" "${STAGE_DIR}/DEBIAN/conffiles"
 
-echo "[4/4] Building ${DIST_DIR}/${PKG_NAME}.deb..."
-dpkg-deb --root-owner-group -Zxz -z6 --build "${STAGE_DIR}" "${DIST_DIR}/${PKG_NAME}.deb"
-(cd "${DIST_DIR}" && sha256sum "${PKG_NAME}.deb" > "${PKG_NAME}.deb.sha256")
+echo "[4/4] Building ${DIST_DIR}/${PKG_NAME}.deb atomically..."
+TMP_DEB="${DIST_DIR}/.${PKG_NAME}.deb.tmp"
+TMP_SHA="${DIST_DIR}/.${PKG_NAME}.deb.sha256.tmp"
+rm -f "${TMP_DEB}" "${TMP_SHA}"
+trap 'rm -f "${TMP_DEB}" "${TMP_SHA}"' EXIT
+XZ_OPT="${XZ_OPT:--T4}" dpkg-deb --root-owner-group -Zxz -z6 --build "${STAGE_DIR}" "${TMP_DEB}"
+DEB_SHA256="$(sha256sum "${TMP_DEB}" | awk '{print $1}')"
+printf '%s  %s.deb\n' "${DEB_SHA256}" "${PKG_NAME}" > "${TMP_SHA}"
+mv -f "${TMP_DEB}" "${DIST_DIR}/${PKG_NAME}.deb"
+mv -f "${TMP_SHA}" "${DIST_DIR}/${PKG_NAME}.deb.sha256"
+trap - EXIT
 
 echo "Verify DT_NEEDED of /usr/lib/chromium/chromium:"
 aarch64-linux-gnu-readelf -d "${STAGE_DIR}/usr/lib/chromium/chromium" | grep NEEDED || true
