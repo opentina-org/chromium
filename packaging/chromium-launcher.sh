@@ -18,8 +18,8 @@ Drop-in flag files are sourced from /etc/chromium.d/*.
 EOF
 }
 
-# Source drop-in flags from /etc/chromium.d/* before enabling errexit so
-# third-party drop-in snippets with non-zero test expressions do not abort launch.
+# Source drop-in flags from /etc/chromium.d/* before enabling errexit/noglob so
+# third-party drop-in snippets expecting pathname globbing still work normally.
 if [ -d /etc/chromium.d ]; then
   for file in /etc/chromium.d/*; do
     [ -f "$file" ] || continue
@@ -31,7 +31,9 @@ if [ -d /etc/chromium.d ]; then
   done
 fi
 
-set -e
+# Enable errexit and noglob so unquoted $CHROMIUM_FLAGS splits words without
+# expanding wildcards (e.g. '*.local' or '-- *.html') against the working dir.
+set -ef
 
 export CHROME_WRAPPER="/usr/bin/$APPNAME"
 export CHROME_DESKTOP="chromium.desktop"

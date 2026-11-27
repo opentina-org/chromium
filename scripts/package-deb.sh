@@ -20,8 +20,8 @@ if [[ ! -x "${STRIP_BIN}" ]]; then
   STRIP_BIN="aarch64-linux-gnu-strip"
 fi
 
-if [[ ! -x "${OUT_DIR}/chrome" ]]; then
-  echo "Error: Built binary not found at ${OUT_DIR}/chrome" >&2
+if [[ ! -d "${OUT_DIR}" ]]; then
+  echo "Error: Build output directory not found at ${OUT_DIR}" >&2
   exit 1
 fi
 
@@ -29,6 +29,17 @@ mkdir -p "${DIST_DIR}"
 LOCK_FILE="${DIST_DIR}/.${PKG_NAME}.lock"
 exec 9>"${LOCK_FILE}"
 flock 9
+
+# Hold a shared lock on OUT_DIR while verifying and copying build outputs so an
+# incremental build cannot overwrite binaries/resources mid-staging.
+OUT_LOCK_FILE="${OUT_DIR}/.opentina-build.lock"
+exec 8>"${OUT_LOCK_FILE}"
+flock -s 8
+
+if [[ ! -x "${OUT_DIR}/chrome" ]]; then
+  echo "Error: Built binary not found at ${OUT_DIR}/chrome" >&2
+  exit 1
+fi
 
 rm -rf "${STAGE_DIR}"
 mkdir -p \
@@ -95,6 +106,9 @@ if [[ -d "${OUT_DIR}/MEIPreload" ]]; then
   cp -a "${OUT_DIR}/MEIPreload" "${STAGE_DIR}/usr/lib/chromium/"
 fi
 
+# Staging from OUT_DIR is complete; release shared build lock.
+exec 8>&-
+
 echo "[2/4] Stripping ELF binaries and normalizing payload permissions..."
 "${STRIP_BIN}" --strip-unneeded \
   "${STAGE_DIR}/usr/lib/chromium/chromium" \
@@ -147,7 +161,7 @@ Maintainer: OpenTina Maintainers <maintainers@opentina.org>
 Depends: libc6 (>= 2.31), libglib2.0-0t64 | libglib2.0-0, libgtk-3-0t64 | libgtk-3-0 | libgtk-4-1, libnss3, libnspr4, libdbus-1-3, libatk1.0-0t64 | libatk1.0-0, libatk-bridge2.0-0t64 | libatk-bridge2.0-0, libatspi2.0-0t64 | libatspi2.0-0, libcups2t64 | libcups2, libdrm2, libgbm1, libexpat1, libxcb1, libxkbcommon0, libx11-6, libxcomposite1, libxdamage1, libxext6, libxfixes3, libxrandr2, libpango-1.0-0, libcairo2, libasound2t64 | libasound2, libudev1, xdg-utils (>= 1.0.2), ca-certificates, fonts-liberation | fonts-dejavu-core
 Recommends: libegl1, libgles2, mesa-vulkan-drivers
 Provides: chromium-browser, chromium-common, chromium-sandbox, www-browser
-Conflicts: chromium-common, chromium-sandbox, chromium-l10n, chromium-browser-sunxi
+Conflicts: chromium-common, chromium-sandbox, chromium-l10n, chromium-browser, chromium-browser-sunxi
 Replaces: chromium-common, chromium-sandbox, chromium-l10n, chromium-browser, chromium-browser-sunxi
 Description: Chromium web browser for OpenTina ARM64 (with GLES2 fallback support)
  Universal ARM64 Chromium build linked against bundled third_party libraries
@@ -167,7 +181,7 @@ TMP_DEB="${DIST_DIR}/.${PKG_NAME}.deb.tmp"
 TMP_SHA="${DIST_DIR}/.${PKG_NAME}.deb.sha256.tmp"
 rm -f "${TMP_DEB}" "${TMP_SHA}"
 trap 'rm -f "${TMP_DEB}" "${TMP_SHA}"' EXIT
-XZ_OPT="${XZ_OPT:--T4}" dpkg-deb --root-owner-group -Zxz -z6 --build "${STAGE_DIR}" "${TMP_DEB}"
+DPKG_DEB_THREADS_MAX="${DPKG_DEB_THREADS_MAX:-8}" dpkg-deb --root-owner-group -Zxz -z6 --build "${STAGE_DIR}" "${TMP_DEB}"
 DEB_SHA256="$(sha256sum "${TMP_DEB}" | awk '{print $1}')"
 printf '%s  %s.deb\n' "${DEB_SHA256}" "${PKG_NAME}" > "${TMP_SHA}"
 mv -f "${TMP_DEB}" "${DIST_DIR}/${PKG_NAME}.deb"

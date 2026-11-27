@@ -16,7 +16,12 @@ if [[ ! -d "${SRC_DIR}" ]]; then
   exit 1
 fi
 
-"${REPO_ROOT}/scripts/apply-patches.sh"
+# Hold SRC_DIR patch lock across patching, gn gen, and ninja so concurrent builds
+# cannot alter source patches while compilation is in progress.
+SRC_PATCH_LOCK="${SRC_DIR}/.opentina-patch.lock"
+exec 8>"${SRC_PATCH_LOCK}"
+flock 8
+OPENTINA_PATCH_LOCK_HELD=1 "${REPO_ROOT}/scripts/apply-patches.sh"
 
 mkdir -p "${OUT_DIR}"
 OUT_LOCK_FILE="${OUT_DIR}/.opentina-build.lock"

@@ -17,8 +17,10 @@ if [[ ! -d "${SRC_DIR}" ]]; then
   exit 1
 fi
 
-exec 9>"${LOCK_FILE}"
-flock 9
+if [[ "${OPENTINA_PATCH_LOCK_HELD:-0}" != "1" ]]; then
+  exec 9>"${LOCK_FILE}"
+  flock 9
+fi
 
 restore_from_backup() {
   echo "Restoring pristine source files from ${BACKUP_DIR}..."
@@ -86,20 +88,27 @@ fi
 
 TOUCHED_PATHS=()
 if [[ "${#PATCH_FILES[@]}" -gt 0 ]]; then
-  # Validate all patches in a temporary copy of touched files first so a later
-  # hunk failure never leaves earlier files half-patched on disk.
+  while IFS= read -r rel_path; do
+    [[ -z "${rel_path}" ]] && continue
+    TOUCHED_PATHS+=("${rel_path}")
+  done < <(
+    for patch_file in "${PATCH_FILES[@]}"; do
+      sed -n 's|^--- a/||p; s|^+++ b/||p' "${patch_file}"
+    done | grep -v '^/dev/null$' | sort -u
+  )
+
+  # Populate a temporary copy of all touched paths once, then validate the
+  # entire patch series in order (including delete-then-recreate sequences).
   TMP_CHECK="$(mktemp -d)"
   trap 'rm -rf "${TMP_CHECK}"' EXIT
   echo "Validating OpenTina patch series atomically..."
+  for rel_path in "${TOUCHED_PATHS[@]}"; do
+    if [[ -f "${SRC_DIR}/${rel_path}" ]]; then
+      mkdir -p "${TMP_CHECK}/$(dirname "${rel_path}")"
+      cp -a "${SRC_DIR}/${rel_path}" "${TMP_CHECK}/${rel_path}"
+    fi
+  done
   for patch_file in "${PATCH_FILES[@]}"; do
-    while IFS= read -r rel_path; do
-      [[ -z "${rel_path}" ]] && continue
-      TOUCHED_PATHS+=("${rel_path}")
-      if [[ -f "${SRC_DIR}/${rel_path}" && ! -f "${TMP_CHECK}/${rel_path}" ]]; then
-        mkdir -p "${TMP_CHECK}/$(dirname "${rel_path}")"
-        cp -a "${SRC_DIR}/${rel_path}" "${TMP_CHECK}/${rel_path}"
-      fi
-    done < <(sed -n 's|^--- a/||p; s|^+++ b/||p' "${patch_file}" | grep -v '^/dev/null$' | sort -u)
     patch -d "${TMP_CHECK}" -p1 --forward --silent < "${patch_file}"
   done
   rm -rf "${TMP_CHECK}"
@@ -111,17 +120,14 @@ fi
 rm -rf "${BACKUP_DIR}"
 mkdir -p "${BACKUP_DIR}/orig"
 : > "${BACKUP_DIR}/created"
-if [[ "${#TOUCHED_PATHS[@]}" -gt 0 ]]; then
-  while IFS= read -r rel_path; do
-    [[ -z "${rel_path}" ]] && continue
-    if [[ -f "${SRC_DIR}/${rel_path}" ]]; then
-      mkdir -p "${BACKUP_DIR}/orig/$(dirname "${rel_path}")"
-      cp -a "${SRC_DIR}/${rel_path}" "${BACKUP_DIR}/orig/${rel_path}"
-    else
-      echo "${rel_path}" >> "${BACKUP_DIR}/created"
-    fi
-  done < <(printf '%s\n' "${TOUCHED_PATHS[@]}" | sort -u)
-fi
+for rel_path in "${TOUCHED_PATHS[@]}"; do
+  if [[ -f "${SRC_DIR}/${rel_path}" ]]; then
+    mkdir -p "${BACKUP_DIR}/orig/$(dirname "${rel_path}")"
+    cp -a "${SRC_DIR}/${rel_path}" "${BACKUP_DIR}/orig/${rel_path}"
+  else
+    echo "${rel_path}" >> "${BACKUP_DIR}/created"
+  fi
+done
 touch "${BACKUP_DIR}/ready"
 
 if [[ "${#PATCH_FILES[@]}" -gt 0 ]]; then

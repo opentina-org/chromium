@@ -6,6 +6,10 @@ _ot_has_ozone=0
 _ot_hint_platform=""
 _ot_has_gl=0
 _ot_seen_ddash=0
+case "$-" in
+  *f*) _ot_had_noglob=1 ;;
+  *) _ot_had_noglob=0; set -f ;;
+esac
 
 for _ot_tok in $CHROMIUM_FLAGS; do
   case "$_ot_tok" in
@@ -17,6 +21,10 @@ for _ot_tok in $CHROMIUM_FLAGS; do
     --use-angle=*|--use-gl=*) _ot_has_gl=1 ;;
   esac
 done
+
+if [ "$_ot_had_noglob" -eq 0 ]; then
+  set +f
+fi
 
 if [ "$_ot_seen_ddash" -eq 0 ]; then
   for _ot_arg in "$@"; do
@@ -55,4 +63,4 @@ if [ -n "$_ot_prepend" ]; then
   CHROMIUM_FLAGS="${_ot_prepend# }${CHROMIUM_FLAGS:+ $CHROMIUM_FLAGS}"
 fi
 
-unset _ot_tok _ot_arg _ot_has_ozone _ot_hint_platform _ot_has_gl _ot_seen_ddash _ot_prepend
+unset _ot_tok _ot_arg _ot_has_ozone _ot_hint_platform _ot_has_gl _ot_seen_ddash _ot_had_noglob _ot_prepend

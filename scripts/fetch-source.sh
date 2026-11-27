@@ -86,15 +86,17 @@ echo "[4/4] Installing matched Clang, Rust, Node (${NODE_VERSION}), and Go (${GO
 python3 tools/clang/scripts/update.py
 python3 tools/rust/update_rust.py
 
-if [[ ! -x "third_party/node/linux/node-linux-x64/bin/node" ]]; then
+NODE_BIN="third_party/node/linux/node-linux-x64/bin/node"
+if [[ ! -x "${NODE_BIN}" ]] || [[ "$("${NODE_BIN}" --version 2>/dev/null)" != "${NODE_VERSION}" ]]; then
   mkdir -p third_party/node/linux
+  rm -rf "third_party/node/linux/node-${NODE_VERSION}-linux-x64" third_party/node/linux/node-linux-x64
   curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz" \
     | tar -xJf - -C third_party/node/linux
-  rm -rf third_party/node/linux/node-linux-x64
   mv "third_party/node/linux/node-${NODE_VERSION}-linux-x64" third_party/node/linux/node-linux-x64
 fi
 
-if [[ ! -x "third_party/dawn/tools/golang/linux-amd64/bin/go" ]]; then
+GO_BIN="third_party/dawn/tools/golang/linux-amd64/bin/go"
+if [[ ! -x "${GO_BIN}" ]] || [[ "$("${GO_BIN}" env GOVERSION 2>/dev/null)" != "go${GO_VERSION}" ]]; then
   mkdir -p third_party/dawn/tools/golang
   rm -rf third_party/dawn/tools/golang/go third_party/dawn/tools/golang/linux-amd64
   curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz" \
