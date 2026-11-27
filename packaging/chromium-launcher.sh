@@ -38,7 +38,16 @@ export CHROME_DESKTOP="chromium.desktop"
 export CHROME_VERSION_EXTRA="${CHROME_VERSION_EXTRA:-OpenTina}"
 
 want_temp_profile=0
+has_user_data_dir=0
 seen_ddash=0
+
+for flag_tok in $CHROMIUM_FLAGS; do
+  case "$flag_tok" in
+    --user-data-dir|--user-data-dir=*) has_user_data_dir=1 ;;
+    --temp-profile) want_temp_profile=1 ;;
+  esac
+done
+
 argc=$#
 i=0
 while [ "$i" -lt "$argc" ]; do
@@ -57,6 +66,10 @@ while [ "$i" -lt "$argc" ]; do
     --temp-profile)
       want_temp_profile=1
       ;;
+    --user-data-dir|--user-data-dir=*)
+      has_user_data_dir=1
+      set -- "$@" "$arg"
+      ;;
     -h|--help|-help)
       usage
       exit 0
@@ -66,6 +79,11 @@ while [ "$i" -lt "$argc" ]; do
       ;;
   esac
 done
+
+if [ "$want_temp_profile" -eq 1 ] && [ "$has_user_data_dir" -eq 1 ]; then
+  echo "Error: --temp-profile cannot be combined with --user-data-dir." >&2
+  exit 2
+fi
 
 if [ "$want_temp_profile" -eq 1 ]; then
   TEMP_PROFILE="$(mktemp -d)"

@@ -1,29 +1,50 @@
 # OpenTina GPU defaults for ARM64 Mesa/Zink + Wayland/X11 sessions.
-# Only sets defaults when options before '--' (or CHROMIUM_FLAGS) do not override them.
+# Chromium 156 removed --ozone-platform-hint and only parses --ozone-platform.
+# Map explicit --ozone-platform-hint=x11|wayland to --ozone-platform, auto-select
+# wayland for pure Wayland sessions lacking XDG_SESSION_TYPE, and default ANGLE
+# to gles-egl unless overridden before '--' or in CHROMIUM_FLAGS.
 
 _ot_has_ozone=0
+_ot_hint_platform=""
 _ot_has_gl=0
 
-for _ot_arg in "$@"; do
-  case "$_ot_arg" in
-    --) break ;;
-    --ozone-platform=*|--ozone-platform-hint=*) _ot_has_ozone=1 ;;
+# Check CHROMIUM_FLAGS first so explicit CLI flags parsed below take precedence.
+for _ot_tok in $CHROMIUM_FLAGS; do
+  case "$_ot_tok" in
+    --ozone-platform=*) _ot_has_ozone=1 ;;
+    --ozone-platform-hint=x11) _ot_hint_platform="x11" ;;
+    --ozone-platform-hint=wayland) _ot_hint_platform="wayland" ;;
+    --ozone-platform-hint=auto) _ot_hint_platform="auto" ;;
     --use-angle=*|--use-gl=*) _ot_has_gl=1 ;;
   esac
 done
 
-case " $CHROMIUM_FLAGS " in
-  *" --ozone-platform="*|*" --ozone-platform-hint="*) _ot_has_ozone=1 ;;
-esac
-case " $CHROMIUM_FLAGS " in
-  *" --use-angle="*|*" --use-gl="*) _ot_has_gl=1 ;;
-esac
+for _ot_arg in "$@"; do
+  case "$_ot_arg" in
+    --) break ;;
+    --ozone-platform=*) _ot_has_ozone=1 ;;
+    --ozone-platform-hint=x11) _ot_hint_platform="x11" ;;
+    --ozone-platform-hint=wayland) _ot_hint_platform="wayland" ;;
+    --ozone-platform-hint=auto) _ot_hint_platform="auto" ;;
+    --use-angle=*|--use-gl=*) _ot_has_gl=1 ;;
+  esac
+done
 
 if [ "$_ot_has_ozone" -eq 0 ]; then
-  CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform-hint=auto"
+  case "$_ot_hint_platform" in
+    x11|wayland)
+      CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform=$_ot_hint_platform"
+      ;;
+    *)
+      if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] || { [ -n "${WAYLAND_DISPLAY:-}" ] && [ -z "${DISPLAY:-}" ]; }; then
+        CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform=wayland"
+      fi
+      ;;
+  esac
 fi
+
 if [ "$_ot_has_gl" -eq 0 ]; then
   CHROMIUM_FLAGS="$CHROMIUM_FLAGS --use-angle=gles-egl"
 fi
 
-unset _ot_arg _ot_has_ozone _ot_has_gl
+unset _ot_tok _ot_arg _ot_has_ozone _ot_hint_platform _ot_has_gl

@@ -9,11 +9,15 @@ CACHE_DIR="$(realpath -m "${CHROMIUM_CACHE_DIR:-${REPO_ROOT}/build/cache}")"
 SRC_PARENT="$(realpath -m "${CHROMIUM_SRC_PARENT:-${CACHE_DIR}}")"
 SRC_DIR="$(realpath -m "${CHROMIUM_SRC_DIR:-${SRC_PARENT}/chromium-${CHROMIUM_VERSION}}")"
 STAMP_FILE="${SRC_DIR}/.opentina-patches-applied"
+LOCK_FILE="${SRC_DIR}/.opentina-patch.lock"
 
 if [[ ! -d "${SRC_DIR}" ]]; then
   echo "Error: Chromium source tree not found at ${SRC_DIR}" >&2
   exit 1
 fi
+
+exec 9>"${LOCK_FILE}"
+flock 9
 
 PATCH_FILES=()
 while IFS= read -r patch_name || [[ -n "${patch_name}" ]]; do

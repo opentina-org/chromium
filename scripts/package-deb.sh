@@ -25,6 +25,11 @@ if [[ ! -x "${OUT_DIR}/chrome" ]]; then
   exit 1
 fi
 
+mkdir -p "${DIST_DIR}"
+LOCK_FILE="${DIST_DIR}/.${PKG_NAME}.lock"
+exec 9>"${LOCK_FILE}"
+flock 9
+
 rm -rf "${STAGE_DIR}"
 mkdir -p \
   "${STAGE_DIR}/DEBIAN" \
@@ -46,16 +51,39 @@ for shlib in libEGL.so libGLESv2.so libvk_swiftshader.so libvulkan.so.1; do
 done
 [[ -f "${OUT_DIR}/vk_swiftshader_icd.json" ]] && cp -a "${OUT_DIR}/vk_swiftshader_icd.json" "${STAGE_DIR}/usr/lib/chromium/"
 
-found_v8_snapshot=0
-for snap in v8_context_snapshot.bin snapshot_blob.bin; do
-  if [[ -f "${OUT_DIR}/${snap}" ]]; then
-    cp -a "${OUT_DIR}/${snap}" "${STAGE_DIR}/usr/lib/chromium/"
-    found_v8_snapshot=1
+V8_BUILDFLAGS_HEADER="${OUT_DIR}/gen/tools/v8_context_snapshot/buildflags.h"
+require_ctx_snap=1
+require_blob_snap=0
+ctx_snap_name="v8_context_snapshot.bin"
+if [[ -f "${V8_BUILDFLAGS_HEADER}" ]]; then
+  if grep -q 'BUILDFLAG_INTERNAL_USE_V8_CONTEXT_SNAPSHOT() (0)' "${V8_BUILDFLAGS_HEADER}"; then
+    require_ctx_snap=0
+    require_blob_snap=1
   fi
-done
-if [[ "${found_v8_snapshot}" -eq 0 ]]; then
-  echo "Error: Missing V8 snapshot binary (v8_context_snapshot.bin / snapshot_blob.bin) in ${OUT_DIR}" >&2
-  exit 1
+  if grep -q 'BUILDFLAG_INTERNAL_INCLUDE_BOTH_V8_SNAPSHOTS() (1)' "${V8_BUILDFLAGS_HEADER}"; then
+    require_blob_snap=1
+  fi
+  parsed_snap_name="$(sed -n 's/.*BUILDFLAG_INTERNAL_V8_CONTEXT_SNAPSHOT_FILENAME() ("\([^"]*\)").*/\1/p' "${V8_BUILDFLAGS_HEADER}")"
+  if [[ -n "${parsed_snap_name}" ]]; then
+    ctx_snap_name="${parsed_snap_name}"
+  fi
+fi
+
+if [[ "${require_ctx_snap}" -eq 1 ]]; then
+  if [[ ! -f "${OUT_DIR}/${ctx_snap_name}" ]]; then
+    echo "Error: Required V8 context snapshot ${OUT_DIR}/${ctx_snap_name} is missing." >&2
+    exit 1
+  fi
+  cp -a "${OUT_DIR}/${ctx_snap_name}" "${STAGE_DIR}/usr/lib/chromium/"
+fi
+if [[ "${require_blob_snap}" -eq 1 ]]; then
+  if [[ ! -f "${OUT_DIR}/snapshot_blob.bin" ]]; then
+    echo "Error: Required V8 snapshot ${OUT_DIR}/snapshot_blob.bin is missing." >&2
+    exit 1
+  fi
+  cp -a "${OUT_DIR}/snapshot_blob.bin" "${STAGE_DIR}/usr/lib/chromium/"
+elif [[ -f "${OUT_DIR}/snapshot_blob.bin" ]]; then
+  cp -a "${OUT_DIR}/snapshot_blob.bin" "${STAGE_DIR}/usr/lib/chromium/"
 fi
 
 cp -a "${OUT_DIR}/icudtl.dat" "${STAGE_DIR}/usr/lib/chromium/"
@@ -104,7 +132,7 @@ Priority: optional
 Architecture: arm64
 Installed-Size: ${INSTALLED_KB}
 Maintainer: OpenTina Maintainers <maintainers@opentina.org>
-Depends: libc6 (>= 2.31), libglib2.0-0t64 | libglib2.0-0, libnss3, libnspr4, libdbus-1-3, libatk1.0-0t64 | libatk1.0-0, libatk-bridge2.0-0t64 | libatk-bridge2.0-0, libatspi2.0-0t64 | libatspi2.0-0, libcups2t64 | libcups2, libdrm2, libgbm1, libexpat1, libxcb1, libxkbcommon0, libx11-6, libxcomposite1, libxdamage1, libxext6, libxfixes3, libxrandr2, libpango-1.0-0, libcairo2, libasound2t64 | libasound2, libudev1, ca-certificates, fonts-liberation | fonts-dejavu-core
+Depends: libc6 (>= 2.31), libglib2.0-0t64 | libglib2.0-0, libnss3, libnspr4, libdbus-1-3, libatk1.0-0t64 | libatk1.0-0, libatk-bridge2.0-0t64 | libatk-bridge2.0-0, libatspi2.0-0t64 | libatspi2.0-0, libcups2t64 | libcups2, libdrm2, libgbm1, libexpat1, libxcb1, libxkbcommon0, libx11-6, libxcomposite1, libxdamage1, libxext6, libxfixes3, libxrandr2, libpango-1.0-0, libcairo2, libasound2t64 | libasound2, libudev1, xdg-utils (>= 1.0.2), ca-certificates, fonts-liberation | fonts-dejavu-core
 Recommends: libegl1, libgles2, mesa-vulkan-drivers
 Provides: chromium-browser, chromium-common, chromium-sandbox, www-browser
 Conflicts: chromium-common, chromium-sandbox, chromium-l10n, chromium-browser-sunxi
@@ -122,7 +150,6 @@ cat > "${STAGE_DIR}/DEBIAN/conffiles" <<EOF
 EOF
 
 echo "[4/4] Building ${DIST_DIR}/${PKG_NAME}.deb..."
-mkdir -p "${DIST_DIR}"
 dpkg-deb --root-owner-group -Zxz -z6 --build "${STAGE_DIR}" "${DIST_DIR}/${PKG_NAME}.deb"
 (cd "${DIST_DIR}" && sha256sum "${PKG_NAME}.deb" > "${PKG_NAME}.deb.sha256")
 

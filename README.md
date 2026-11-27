@@ -10,7 +10,7 @@ This repository maintains:
 
 1. **Standalone Patch Queue (`patches/`)** — Restores `ES 3.0 -> ES 2.0` context fallback for GPU info collection and compositor contexts while keeping WebGL2 context requests strict (`getContext('webgl2')` cleanly returns `null` until Mesa/Zink exposes ES 3.0, while hardware GPU compositing and WebGL1 work immediately). Patches follow standard `-p1` quilt format so they can also be added directly to Yocto `meta-chromium` `SRC_URI`.
 2. **Cross-Distro `arm64.deb` Packaging (`config/`, `packaging/`, `scripts/`)** — Cross-compiles Chromium with bundled `third_party` libraries against the baseline Debian Bullseye `arm64` sysroot (`glibc >= 2.31`), producing a **single `chromium_<ver>_arm64.deb`** that installs cleanly on **both Debian 12/13 and Ubuntu 22.04/24.04** without library SONAME conflicts or Snap shims.
-3. **Default GPU Flags (`/etc/chromium.d/10-opentina-gpu`)** — Defaults to `--ozone-platform-hint=auto --use-angle=gles-egl` unless overridden on the command line.
+3. **Default GPU Flags (`/etc/chromium.d/10-opentina-gpu`)** — Auto-selects `--ozone-platform=wayland` in Wayland sessions (and maps legacy `--ozone-platform-hint=x11|wayland` flags) while defaulting ANGLE to `--use-angle=gles-egl` unless overridden on the command line.
 
 ## Repository Layout
 
