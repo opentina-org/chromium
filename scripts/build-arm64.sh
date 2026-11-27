@@ -5,10 +5,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../VERSION
 source "${REPO_ROOT}/VERSION"
 
-CACHE_DIR="${CHROMIUM_CACHE_DIR:-${REPO_ROOT}/build/cache}"
-SRC_PARENT="${CHROMIUM_SRC_PARENT:-${CACHE_DIR}}"
-SRC_DIR="${CHROMIUM_SRC_DIR:-${SRC_PARENT}/chromium-${CHROMIUM_VERSION}}"
-OUT_DIR="${CHROMIUM_OUT_DIR:-${SRC_DIR}/out/Release-arm64}"
+CACHE_DIR="$(realpath -m "${CHROMIUM_CACHE_DIR:-${REPO_ROOT}/build/cache}")"
+SRC_PARENT="$(realpath -m "${CHROMIUM_SRC_PARENT:-${CACHE_DIR}}")"
+SRC_DIR="$(realpath -m "${CHROMIUM_SRC_DIR:-${SRC_PARENT}/chromium-${CHROMIUM_VERSION}}")"
+OUT_DIR="$(realpath -m "${CHROMIUM_OUT_DIR:-${SRC_DIR}/out/Release-arm64}")"
 JOBS="${NINJA_JOBS:-8}"
 
 if [[ ! -d "${SRC_DIR}" ]]; then

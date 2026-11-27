@@ -69,9 +69,34 @@ done
 
 if [ "$want_temp_profile" -eq 1 ]; then
   TEMP_PROFILE="$(mktemp -d)"
-  trap 'rm -rf "$TEMP_PROFILE"' EXIT INT TERM
+  child_pid=""
+  cleanup_temp_profile() {
+    rm -rf "$TEMP_PROFILE"
+  }
+  forward_signal() {
+    sig="$1"
+    trap - EXIT INT TERM HUP
+    if [ -n "$child_pid" ]; then
+      kill "-$sig" "$child_pid" 2>/dev/null || true
+      wait "$child_pid" 2>/dev/null || true
+    fi
+    cleanup_temp_profile
+    exit 143
+  }
+  trap 'cleanup_temp_profile' EXIT
+  trap 'forward_signal INT' INT
+  trap 'forward_signal TERM' TERM
+  trap 'forward_signal HUP' HUP
   # shellcheck disable=SC2086
-  "$LIBDIR/chromium" $CHROMIUM_FLAGS "--user-data-dir=$TEMP_PROFILE" "$@"
+  "$LIBDIR/chromium" $CHROMIUM_FLAGS "--user-data-dir=$TEMP_PROFILE" "$@" &
+  child_pid=$!
+  set +e
+  wait "$child_pid"
+  rc=$?
+  set -e
+  trap - EXIT INT TERM HUP
+  cleanup_temp_profile
+  exit "$rc"
 else
   # shellcheck disable=SC2086
   exec "$LIBDIR/chromium" $CHROMIUM_FLAGS "$@"

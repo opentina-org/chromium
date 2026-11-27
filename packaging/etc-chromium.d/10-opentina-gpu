@@ -1,12 +1,29 @@
 # OpenTina GPU defaults for ARM64 Mesa/Zink + Wayland/X11 sessions.
-# Only sets defaults when the user/service has not explicitly passed overrides.
+# Only sets defaults when options before '--' (or CHROMIUM_FLAGS) do not override them.
 
-case " $* $CHROMIUM_FLAGS " in
-  *" --ozone-platform="*|*" --ozone-platform-hint="*) ;;
-  *) CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform-hint=auto" ;;
+_ot_has_ozone=0
+_ot_has_gl=0
+
+for _ot_arg in "$@"; do
+  case "$_ot_arg" in
+    --) break ;;
+    --ozone-platform=*|--ozone-platform-hint=*) _ot_has_ozone=1 ;;
+    --use-angle=*|--use-gl=*) _ot_has_gl=1 ;;
+  esac
+done
+
+case " $CHROMIUM_FLAGS " in
+  *" --ozone-platform="*|*" --ozone-platform-hint="*) _ot_has_ozone=1 ;;
+esac
+case " $CHROMIUM_FLAGS " in
+  *" --use-angle="*|*" --use-gl="*) _ot_has_gl=1 ;;
 esac
 
-case " $* $CHROMIUM_FLAGS " in
-  *" --use-angle="*|*" --use-gl="*) ;;
-  *) CHROMIUM_FLAGS="$CHROMIUM_FLAGS --use-angle=gles-egl" ;;
-esac
+if [ "$_ot_has_ozone" -eq 0 ]; then
+  CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform-hint=auto"
+fi
+if [ "$_ot_has_gl" -eq 0 ]; then
+  CHROMIUM_FLAGS="$CHROMIUM_FLAGS --use-angle=gles-egl"
+fi
+
+unset _ot_arg _ot_has_ozone _ot_has_gl

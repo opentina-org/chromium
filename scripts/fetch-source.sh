@@ -5,9 +5,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../VERSION
 source "${REPO_ROOT}/VERSION"
 
-CACHE_DIR="${CHROMIUM_CACHE_DIR:-${REPO_ROOT}/build/cache}"
-SRC_PARENT="${CHROMIUM_SRC_PARENT:-${CACHE_DIR}}"
-SRC_DIR="${CHROMIUM_SRC_DIR:-${SRC_PARENT}/chromium-${CHROMIUM_VERSION}}"
+CACHE_DIR="$(realpath -m "${CHROMIUM_CACHE_DIR:-${REPO_ROOT}/build/cache}")"
+SRC_PARENT="$(realpath -m "${CHROMIUM_SRC_PARENT:-${CACHE_DIR}}")"
+SRC_DIR="$(realpath -m "${CHROMIUM_SRC_DIR:-${SRC_PARENT}/chromium-${CHROMIUM_VERSION}}")"
 EXTRACT_PARENT="$(dirname "${SRC_DIR}")"
 EXTRACT_STAMP="${SRC_DIR}/.opentina-extracted"
 TARBALL_NAME="chromium-${CHROMIUM_VERSION}-${TARBALL_VARIANT}.tar.xz"
@@ -16,6 +16,10 @@ TARBALL_PART="${TARBALL_PATH}.part"
 TARBALL_URL="https://commondatastorage.googleapis.com/chromium-browser-official/${TARBALL_NAME}"
 
 mkdir -p "${CACHE_DIR}" "${EXTRACT_PARENT}"
+
+LOCK_FILE="${CACHE_DIR}/.opentina-fetch.lock"
+exec 9>"${LOCK_FILE}"
+flock 9
 
 echo "[1/4] Verifying or downloading ${TARBALL_NAME}..."
 if [[ ! -f "${TARBALL_PATH}" ]] || ! echo "${TARBALL_SHA256}  ${TARBALL_PATH}" | sha256sum -c - >/dev/null 2>&1; then
@@ -37,14 +41,34 @@ if [[ ! -f "${TARBALL_PATH}" ]] || ! echo "${TARBALL_SHA256}  ${TARBALL_PATH}" |
 fi
 
 echo "[2/4] Extracting source tree to ${SRC_DIR}..."
-if [[ ! -f "${EXTRACT_STAMP}" ]]; then
-  rm -rf "${SRC_DIR}"
-  tar -I "xz -T4" -xf "${TARBALL_PATH}" -C "${EXTRACT_PARENT}"
-  if [[ ! -d "${SRC_DIR}" ]]; then
-    echo "Error: Archive did not extract expected directory ${SRC_DIR}" >&2
+if [[ -f "${EXTRACT_STAMP}" ]]; then
+  STAMP_SHA="$(cat "${EXTRACT_STAMP}")"
+  if [[ "${STAMP_SHA}" != "${TARBALL_SHA256}" ]]; then
+    echo "Error: Existing source tree at ${SRC_DIR} has stamp ${STAMP_SHA}, expected ${TARBALL_SHA256}." >&2
+    echo "Remove ${SRC_DIR} or choose a clean CHROMIUM_SRC_DIR before upgrading." >&2
     exit 1
   fi
-  echo "${TARBALL_SHA256}" > "${EXTRACT_STAMP}"
+else
+  if [[ -e "${SRC_DIR}" ]]; then
+    if [[ ! -d "${SRC_DIR}" ]] || [[ -n "$(ls -A "${SRC_DIR}" 2>/dev/null)" ]]; then
+      echo "Error: Target source path ${SRC_DIR} already exists without a valid extraction stamp." >&2
+      echo "Refusing to delete existing contents; remove ${SRC_DIR} manually and re-run." >&2
+      exit 1
+    fi
+    rmdir "${SRC_DIR}"
+  fi
+  TMP_EXTRACT="$(mktemp -d "${EXTRACT_PARENT}/.chromium-extract.XXXXXX")"
+  trap 'rm -rf "${TMP_EXTRACT}"' EXIT
+  tar -I "xz -T4" -xf "${TARBALL_PATH}" -C "${TMP_EXTRACT}"
+  EXTRACTED_SUBDIR="${TMP_EXTRACT}/chromium-${CHROMIUM_VERSION}"
+  if [[ ! -d "${EXTRACTED_SUBDIR}" ]]; then
+    echo "Error: Archive did not contain expected directory chromium-${CHROMIUM_VERSION}" >&2
+    exit 1
+  fi
+  echo "${TARBALL_SHA256}" > "${EXTRACTED_SUBDIR}/.opentina-extracted"
+  mv "${EXTRACTED_SUBDIR}" "${SRC_DIR}"
+  rmdir "${TMP_EXTRACT}"
+  trap - EXIT
 fi
 
 echo "[3/4] Installing matched Debian Bullseye amd64 + arm64 sysroots..."
