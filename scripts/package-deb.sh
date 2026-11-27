@@ -77,8 +77,10 @@ for sofile in "${STAGE_DIR}/usr/lib/chromium"/*.so*; do
     "${STRIP_BIN}" --strip-unneeded "${sofile}"
   fi
 done
-# Set 4755 in package payload (owned by root:root via dpkg-deb --root-owner-group)
+# Normalize group/other write bits copied via cp -a from build output, then
+# set 4755 in package payload (owned by root:root via dpkg-deb --root-owner-group)
 # so dpkg preserves local dpkg-statoverride settings across upgrades.
+chmod -R go-w "${STAGE_DIR}"
 chmod 4755 "${STAGE_DIR}/usr/lib/chromium/chrome-sandbox"
 
 install -m 0755 "${REPO_ROOT}/packaging/chromium-launcher.sh" "${STAGE_DIR}/usr/bin/chromium"
